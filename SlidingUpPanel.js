@@ -4,14 +4,13 @@ import clamp from 'clamp'
 
 import {
   ViewPropTypes,
-  UIManager,
   TextInput,
   Keyboard,
   BackHandler,
   Animated,
   PanResponder,
   Platform,
-  findNodeHandle
+  View,
 } from 'react-native'
 
 import closest from './libs/closest'
@@ -36,6 +35,7 @@ const usableHeight = visibleHeight() - statusBarHeight()
 class SlidingUpPanel extends React.PureComponent {
   static propTypes = {
     height: PropTypes.number,
+    scroll: PropTypes.number,
     animatedValue: PropTypes.instanceOf(Animated.Value),
     draggableRange: PropTypes.shape({
       top: PropTypes.number,
@@ -47,10 +47,11 @@ class SlidingUpPanel extends React.PureComponent {
     avoidKeyboard: PropTypes.bool,
     onBackButtonPress: PropTypes.func,
     onDragStart: PropTypes.func,
+    onDragMove: PropTypes.func,
     onDragEnd: PropTypes.func,
+    onEnd: PropTypes.func,
     onMomentumDragStart: PropTypes.func,
     onMomentumDragEnd: PropTypes.func,
-    onBottomReached: PropTypes.func,
     allowMomentum: PropTypes.bool,
     allowDragging: PropTypes.bool,
     showBackdrop: PropTypes.bool,
@@ -58,11 +59,13 @@ class SlidingUpPanel extends React.PureComponent {
     friction: PropTypes.number,
     containerStyle: ViewPropTypes.style,
     backdropStyle: ViewPropTypes.style,
-    children: PropTypes.oneOfType([PropTypes.element, PropTypes.func])
+    children: PropTypes.oneOfType([PropTypes.element, PropTypes.func]),
+    onBottomReached: PropTypes.func,
   }
 
   static defaultProps = {
     height: usableHeight,
+    scroll: 0,
     animatedValue: new Animated.Value(0),
     draggableRange: {top: usableHeight, bottom: 0},
     snappingPoints: [],
@@ -71,7 +74,9 @@ class SlidingUpPanel extends React.PureComponent {
     avoidKeyboard: true,
     onBackButtonPress: null,
     onDragStart: () => {},
+    onDragMove: () => {},
     onDragEnd: () => {},
+    onEnd: () => {},
     onMomentumDragStart: () => {},
     onMomentumDragEnd: () => {},
     allowMomentum: true,
@@ -79,7 +84,7 @@ class SlidingUpPanel extends React.PureComponent {
     showBackdrop: true,
     backdropOpacity: 0.75,
     friction: Constants.DEFAULT_FRICTION,
-    onBottomReached: () => null,
+    onBottomReached: () => {},
   }
 
   // eslint-disable-next-line react/sort-comp
@@ -89,7 +94,7 @@ class SlidingUpPanel extends React.PureComponent {
     onPanResponderMove: this._onPanResponderMove.bind(this),
     onPanResponderRelease: this._onPanResponderRelease.bind(this),
     onPanResponderTerminate: this._onPanResponderTerminate.bind(this),
-    onShouldBlockNativeResponder: () => true,
+    onShouldBlockNativeResponder: () => false,
     onPanResponderTerminationRequest: () => false
   })
 
@@ -190,8 +195,7 @@ class SlidingUpPanel extends React.PureComponent {
     const animatedValue = this.props.animatedValue.__getValue()
 
     return (
-      this._isInsideDraggableRange(animatedValue, gestureState) &&
-      Math.abs(gestureState.dy) > this.props.minimumDistanceThreshold
+      this._isInsideDraggableRange(animatedValue, gestureState) // && Math.abs(gestureState.dy) > this.props.minimumDistanceThreshold
     )
   }
 
@@ -209,7 +213,9 @@ class SlidingUpPanel extends React.PureComponent {
     const delta = this._initialDragPosition - gestureState.dy
     const newValue = clamp(delta, top, bottom)
 
-    this.props.animatedValue.setValue(newValue)
+    this.props.onDragMove(delta, gestureState)
+
+    this.props.animatedValue.setValue(delta)
   }
 
   // Trigger when you release your finger
@@ -217,14 +223,14 @@ class SlidingUpPanel extends React.PureComponent {
     const animatedValue = this.props.animatedValue.__getValue()
 
     if (!this._isInsideDraggableRange(animatedValue, gestureState)) {
-      return true
+      return
     }
 
     this._initialDragPosition = animatedValue
     this.props.onDragEnd(animatedValue, gestureState)
 
     if (!this.props.allowMomentum) {
-      return true
+      return
     }
 
     if (this.props.snappingPoints.length > 0) {
@@ -253,7 +259,7 @@ class SlidingUpPanel extends React.PureComponent {
         friction: this.props.friction,
         onMomentumEnd: this.props.onMomentumDragEnd
       })
-      return true
+      return
     }
 
     if (Math.abs(gestureState.vy) > this.props.minimumVelocityThreshold) {
@@ -266,7 +272,6 @@ class SlidingUpPanel extends React.PureComponent {
         onMomentumEnd: this.props.onMomentumDragEnd
       })
     }
-    return true
   }
 
   _onPanResponderTerminate(evt, gestureState) {
@@ -284,8 +289,8 @@ class SlidingUpPanel extends React.PureComponent {
     const isAtBottom = this._isAtBottom(value)
 
     if (isAtBottom) {
+      Keyboard.dismiss()
       this.props.onBottomReached()
-      this.props.avoidKeyboard && Keyboard.dismiss()
     }
 
     if (this._backdrop == null) {
@@ -315,9 +320,7 @@ class SlidingUpPanel extends React.PureComponent {
     const node = TextInput.State.currentlyFocusedField()
 
     if (node != null) {
-      UIManager.viewIsDescendantOf(node, findNodeHandle(this._content), (isDescendant) => {
-        isDescendant && this.scrollIntoView(node)
-      });
+      this.scrollIntoView(node)
     }
   }
 
@@ -330,8 +333,7 @@ class SlidingUpPanel extends React.PureComponent {
     if (this._lastPosition != null && !this._isAtBottom(animatedValue)) {
       Animated.timing(this.props.animatedValue, {
         toValue: this._lastPosition,
-        duration: Constants.KEYBOARD_TRANSITION_DURATION,
-        useNativeDriver: true
+        duration: Constants.KEYBOARD_TRANSITION_DURATION
       }).start()
     }
 
@@ -358,10 +360,12 @@ class SlidingUpPanel extends React.PureComponent {
     const {top, bottom} = this.props.draggableRange
 
     if (gestureState.dy > 0) {
-      return value >= bottom
+      return value > bottom && this.props.scroll < 1
     }
 
-    return value <= top
+    this.props.onEnd(value == top)
+
+    return value < top && this.props.scroll < 1
   }
 
   _isAtBottom(value) {
@@ -439,7 +443,6 @@ class SlidingUpPanel extends React.PureComponent {
         <Animated.View
           key="content"
           pointerEvents="box-none"
-          ref={c => (this._content = c)}
           style={animatedContainerStyles}>
           {this.props.children(this._panResponder.panHandlers)}
         </Animated.View>
@@ -450,7 +453,6 @@ class SlidingUpPanel extends React.PureComponent {
       <Animated.View
         key="content"
         pointerEvents="box-none"
-        ref={c => (this._content = c)}
         style={animatedContainerStyles}
         {...this._panResponder.panHandlers}>
         {this.props.children}
@@ -500,8 +502,7 @@ class SlidingUpPanel extends React.PureComponent {
 
       Animated.timing(this.props.animatedValue, {
         toValue: transitionDistance,
-        duration: Constants.KEYBOARD_TRANSITION_DURATION,
-        useNativeDriver: true
+        duration: Constants.KEYBOARD_TRANSITION_DURATION
       }).start()
     }
   }
