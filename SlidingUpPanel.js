@@ -363,7 +363,7 @@ class SlidingUpPanel extends React.PureComponent {
       return value > bottom && this.props.scroll < 1
     }
 
-    this.props.onEnd(value == top)
+    this.props.onEnd(value > top)
 
     return value < top && this.props.scroll < 1
   }
