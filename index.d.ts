@@ -9,6 +9,7 @@ import {
 
 export interface SlidingUpPanelProps {
   height?: number
+  scroll: number
   animatedValue?: Animated.Value
   draggableRange?: {top: number; bottom: number}
   snappingPoints?: number[]
@@ -17,7 +18,9 @@ export interface SlidingUpPanelProps {
   avoidKeyboard?: boolean
   onBackButtonPress?: () => boolean
   onDragStart?: (value: number, gestureState: PanResponderGestureState) => void
+  onDragMove?: (value: number, gestureState: PanResponderGestureState) => void
   onDragEnd?: (value: number, gestureState: PanResponderGestureState) => void
+  onEnd?: (value: number, gestureState: PanResponderGestureState) => void
   onMomentumDragStart?: (value: number) => void
   onMomentumDragEnd?: (value: number) => void
   onBottomReached?: () => any
